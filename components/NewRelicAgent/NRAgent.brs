@@ -219,6 +219,9 @@ function NewRelicVideoStart(videoObject as Object) as Void
     m.nrTimeSinceRequested = 0.0
     m.nrTimeSinceStarted = 0.0
     m.nrTimeSinceTrackerReady = 0.0
+    ' Elapsed time States
+    m.nrElapsedTime = 0.0
+    m.acc = 0
     'Playtimes
     nrResetPlaytime()
     m.nrPlaytimeSinceLastEvent = invalid
@@ -236,6 +239,7 @@ function NewRelicVideoStart(videoObject as Object) as Void
     m.hbTimer = m.top.findNode("nrHeartbeatTimer")
     m.hbTimer.observeFieldScoped("fire", "nrHeartbeatHandler")
     m.hbTimer.control = "start"
+    m.nrElapsedTime = m.nrTimer.TotalMilliseconds()
     
     'Player Ready
     nrSendPlayerReady()
@@ -906,8 +910,6 @@ function nrAddCustomAttributes(ev as Object) as Object
     actionCustomAttr = m.nrCustomAttributes[actionName]
     if actionCustomAttr <> invalid then ev.Append(actionCustomAttr)
     ' Calculate and add elapsed time for the action
-    elapsedTime = nrCalculateElapsedTime(actionName)
-    ev.AddReplace("elapsedTime", elapsedTime)
     return ev
 end function
 
@@ -922,19 +924,6 @@ function nrAddCommonHTTPAttr(info as Object) as Object
         "url": info["Url"]
     }
     return attr
-end function
-
-function nrCalculateElapsedTime(actionName as String) as Integer
-    currentTime = CreateObject("roDateTime")
-    currentTimestamp = currentTime.AsSeconds()
-    if m.lastEventTimestamps[actionName] <> invalid
-        timeSinceLastEvent = (currentTimestamp - m.lastEventTimestamps[actionName]) * 1000
-        elapsedTime = timeSinceLastEvent
-    else
-        elapsedTime=0
-    end if
-    m.lastEventTimestamps[actionName] = currentTimestamp
-    return elapsedTime
 end function
 
 function nrCalculateBufferType(actionName as String) as String
@@ -1474,6 +1463,7 @@ end function
 
 function nrResumePlaytime() as Void
     if m.nrPlaytimeIsRunning = false
+        m.nrElapsedTime = m.nrTimer.TotalMilliseconds()
         m.nrPlaytimeIsRunning = true
         date = CreateObject("roDateTime")
         m.nrTotalPlaytimeLastTimestamp = date.AsSeconds()
@@ -1483,6 +1473,7 @@ end function
 function nrPausePlaytime() as Void
     if m.nrPlaytimeIsRunning = true
         m.nrPlaytimeIsRunning = false
+        acc += m.nrTimer.TotalMilliseconds() - m.nrElapsedTime
         date = CreateObject("roDateTime")
         offset = date.AsSeconds() - m.nrTotalPlaytimeLastTimestamp
         m.nrTotalPlaytime = m.nrTotalPlaytime + offset 
@@ -1703,6 +1694,15 @@ end function
 
 function nrHeartbeatHandler() as Void
     'Only send while it is playing (state is not "none" or "finished")
+    if m.acc
+        elapsedTime = m.acc
+        m.acc = 0
+    end if
+    if m.nrPlaytimeIsRunning = false
+        elapsedTime += m.nrTimer.TotalMilliseconds() - m.nrElapsedTime
+        m.nrElapsedTime = m.nrTimer.TotalMilliseconds()
+    end if
+    print elapsedTime;"elapsedTime"
     if m.nrVideoObject.state <> "none" and m.nrVideoObject.state <> "finished"
         nrSendVideoEvent("CONTENT_HEARTBEAT")
         m.nrTimeSinceLastHeartbeat = m.nrTimer.TotalMilliseconds()
